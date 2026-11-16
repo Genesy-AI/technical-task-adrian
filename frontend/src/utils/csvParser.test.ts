@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { parseCsv, isValidEmail } from './csvParser'
 
@@ -222,5 +224,43 @@ Jane,Johnson,jane@example.com`
     expect(result[0].lastName).toBe('Doe')
     expect(result[0].email).toBe('john@example.com')
     expect(result[0].isValid).toBe(true)
+  })
+
+  describe('country code validation', () => {
+    const csvWithCountry = (countryCode: string) =>
+      `firstName,lastName,email,countryCode\nJohn,Doe,john@example.com,${countryCode}`
+
+    it('normalizes valid country codes to upper case', () => {
+      const [lead] = parseCsv(csvWithCountry(' es '))
+      expect(lead.countryCode).toBe('ES')
+      expect(lead.isValid).toBe(true)
+    })
+
+    it('treats a blank country code as absent', () => {
+      const [lead] = parseCsv(csvWithCountry(''))
+      expect(lead.countryCode).toBeUndefined()
+      expect(lead.isValid).toBe(true)
+    })
+
+    it.each(['XXX', '12', 'ZZ', 'U'])('marks the lead invalid for country code "%s"', (code) => {
+      const [lead] = parseCsv(csvWithCountry(code))
+      expect(lead.isValid).toBe(false)
+      expect(lead.errors).toEqual([`Invalid country code "${code}" (expected ISO 3166-1 alpha-2, e.g. US)`])
+    })
+
+    it('never lets an invalid country code through as valid in the sample files', () => {
+      const docs = resolve(__dirname, '../../../docs')
+      for (const file of ['leads-with-errors.csv', 'leads-ok-1.csv', 'leads-ok-2.csv', 'leads-ok-3.csv']) {
+        const leads = parseCsv(readFileSync(resolve(docs, file), 'utf-8'))
+        for (const lead of leads.filter((l) => l.isValid && l.countryCode)) {
+          expect(lead.countryCode, `${file} row ${lead.rowIndex}`).toMatch(/^[A-Z]{2}$/)
+        }
+      }
+      const withErrors = parseCsv(readFileSync(resolve(docs, 'leads-with-errors.csv'), 'utf-8'))
+      const badCountryRows = withErrors.filter((l) =>
+        l.errors.some((e) => e.startsWith('Invalid country code'))
+      )
+      expect(badCountryRows.map((l) => l.countryCode).sort()).toEqual(['12', 'XXX', 'XXX', 'XXX', 'XXX'])
+    })
   })
 })
