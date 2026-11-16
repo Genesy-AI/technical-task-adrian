@@ -40,7 +40,7 @@ Frontend (`cd frontend`):
 - `src/index.ts` contains every Express route in one file, calls Prisma directly, and sets CORS by hand. At the bottom it also calls `runTemporalWorker()` (`src/worker.ts`), so the API server and the Temporal worker run in one process. Runtime config (port, DB, Temporal address/namespace/task queue) is read and validated in `src/config.ts`.
 - Temporal layout: workflows go in `src/workflows/workflows.ts` (re-exported from `src/workflows/index.ts`, which the worker loads via `workflowsPath`). Activities go in `src/workflows/activities/` and are re-exported from `activities/index.ts`. Workflow code runs in Temporal's deterministic sandbox, so it must not do I/O or import Prisma or Node APIs. That work belongs in activities called via `proxyActivities`.
 - `POST /leads/verify-emails` opens a new Temporal client connection per request and `await`s `client.workflow.execute` for each lead one after another, so the HTTP request blocks until every workflow finishes.
-- `src/utils/messageGenerator.ts` fills in `{fieldName}` templates from a hardcoded `availableFields` map. Any template variable that is unknown or empty throws, and that lead is reported as a per-lead error.
+- `src/utils/messageGenerator.ts` fills in `{fieldName}` templates for the variables in `src/leadTemplateFields.ts`. Any template variable that is unknown or empty throws, and that lead is reported as a per-lead error.
 - Prisma uses SQLite via `DATABASE_URL` (`file:./dev.db`, relative to `prisma/`). `dev.db` is committed (see the commit rule above).
 
 ### Frontend
@@ -49,7 +49,9 @@ Frontend (`cd frontend`):
 - UI: `LeadsList.tsx` (table, selection, bulk actions), `CsvImportModal.tsx` (parses CSV on the client with `utils/csvParser.ts` and Papaparse, then POSTs `/leads/bulk`), `MessageTemplateModal.tsx`. Styling is Tailwind v4. Notifications use react-hot-toast.
 
 ### Adding a lead field touches all of these
-`prisma/schema.prisma` + migration → `POST /leads/bulk` mapping in `index.ts` → `availableFields` in `messageGenerator.ts` → `api/types/leads/*.ts` → `csvParser.ts` (`CsvLead` + header mapping) → `LeadsList.tsx` columns → the optimistic lead in `useApiMutation.ts` → `MessageTemplateModal.tsx`.
+`prisma/schema.prisma` + migration → `POST /leads/bulk` mapping in `index.ts` (+ validation in `utils/leadFieldValidation.ts` on both sides) → `api/types/leads/*.ts` → `csvParser.ts` (`CsvLead` + header mapping) → `CsvImportModal.tsx` preview → `LeadsList.tsx` columns → the optimistic lead in `useApiMutation.ts`.
+
+If the field is usable in message templates, add it to **both** `backend/src/leadTemplateFields.ts` and `frontend/src/leadTemplateFields.ts`. The backend generator and the frontend composer both read from these lists. They are duplicated on purpose and `scripts/ci.sh contracts` fails if they differ (ADR 0002). Keep them pure data, because CI loads them with Node's type stripping.
 
 ### Known frontend/backend mismatches
 - The frontend `update` endpoint sends `PUT /leads/:id`, but the backend only defines `PATCH`.
