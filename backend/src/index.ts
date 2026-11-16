@@ -1,11 +1,12 @@
 import { config } from './config'
 import { PrismaClient } from '@prisma/client'
 import express, { Request, Response } from 'express'
-import { Connection, Client } from '@temporalio/client'
 import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { isValidCountryCode, normalizeCountryCode } from './utils/countryCodes'
 import { runTemporalWorker } from './worker'
+import { getTemporalClient } from './temporalClient'
+import { verificationErrorMessage } from './utils/verificationError'
 const prisma = new PrismaClient()
 const app = express()
 app.use(express.json())
@@ -279,8 +280,7 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No leads found with the provided IDs' })
     }
 
-    const connection = await Connection.connect({ address: config.temporal.address })
-    const client = new Client({ connection, namespace: config.temporal.namespace })
+    const client = await getTemporalClient()
 
     let verifiedCount = 0
     const results: Array<{ leadId: number; emailVerified: boolean }> = []
@@ -292,6 +292,10 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
           taskQueue: config.temporal.taskQueue,
           workflowId: `verify-email-${lead.id}-${Date.now()}`,
           args: [lead.email],
+          // Backstop so this request cannot wait forever, e.g. when no worker
+          // polls the task queue. The activity retry policy normally fails
+          // the workflow well before this.
+          workflowExecutionTimeout: '30 seconds',
         })
 
         await prisma.lead.update({
@@ -305,12 +309,10 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
         errors.push({
           leadId: lead.id,
           leadName: `${lead.firstName} ${lead.lastName}`.trim(),
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: verificationErrorMessage(lead.id, error),
         })
       }
     }
-
-    await connection.close()
 
     res.json({ success: true, verifiedCount, results, errors })
   } catch (error) {

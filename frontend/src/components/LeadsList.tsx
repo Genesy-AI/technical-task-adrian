@@ -4,6 +4,9 @@ import toast from 'react-hot-toast'
 import { api } from '../api'
 import { MessageTemplateModal } from './MessageTemplateModal'
 import { CsvImportModal } from './CsvImportModal'
+import { summarizeVerifyEmails } from '../utils/verifyEmailsSummary'
+
+const VERIFY_EMAILS_TOAST_ID = 'verify-emails'
 
 export const LeadsList: FC = () => {
   const [selectedLeads, setSelectedLeads] = useState<number[]>([])
@@ -37,17 +40,38 @@ export const LeadsList: FC = () => {
 
   const verifyEmailsMutation = useMutation({
     mutationFn: async (ids: number[]) => api.leads.verifyEmails({ leadIds: ids }),
+    onMutate: () => {
+      setIsEnrichDropdownOpen(false)
+      // Verification can take several seconds; each outcome toast below
+      // replaces this one through the shared id.
+      toast.loading('Verifying emails…', { id: VERIFY_EMAILS_TOAST_ID })
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['leads', 'getMany'] })
-      setIsEnrichDropdownOpen(false)
-      toast.success(
-        data.verifiedCount === 1
-          ? `Verified ${data.verifiedCount} email`
-          : `Verified ${data.verifiedCount} emails`
+
+      const summary = summarizeVerifyEmails(data)
+      if (!summary.hasFailures) {
+        toast.success(summary.title, { id: VERIFY_EMAILS_TOAST_ID })
+        return
+      }
+
+      toast.error(
+        <div>
+          <p>{summary.title}</p>
+          <ul className="mt-1 list-disc pl-4">
+            {summary.failures.map((failure) => (
+              <li key={failure}>{failure}</li>
+            ))}
+          </ul>
+          {summary.remainingFailures > 0 && <p className="mt-1">and {summary.remainingFailures} more</p>}
+          <p className="mt-1">Please try again.</p>
+        </div>,
+        // Long enough to read the list.
+        { id: VERIFY_EMAILS_TOAST_ID, duration: 8000 }
       )
     },
     onError: () => {
-      toast.error('Failed to verify emails. Please try again.')
+      toast.error('Failed to verify emails. Please try again.', { id: VERIFY_EMAILS_TOAST_ID })
     },
   })
 
@@ -187,7 +211,8 @@ export const LeadsList: FC = () => {
                     </button>
                     <button
                       onClick={() => verifyEmailsMutation.mutate(selectedLeads)}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                      disabled={verifyEmailsMutation.isPending}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <div className="flex items-center">
                         <svg
