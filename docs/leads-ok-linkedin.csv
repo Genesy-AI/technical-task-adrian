@@ -1,0 +1,13 @@
+firstName,lastName,email,jobTitle,countryCode,companyName,yearsAtCompany,phoneNumber,linkedinUrl
+Marta,Vidal,marta.vidal@example.com,Head of Growth,ES,Nimbus Analytics,4,+34 612 345 678,https://www.linkedin.com/in/marta-vidal-growth
+Oliver,Grant,oliver.grant@example.org,CTO,GB,Brightline Labs,7,+44 20 7946 0958,linkedin.com/in/olivergrant
+Priya,Raman,priya.raman@example.net,Data Scientist,IN,Quantix,2,+91 98765 43210,https://linkedin.com/in/priya-raman/
+Lukas,Becker,lukas.becker@example.com,Sales Director,DE,Nordwerk GmbH,12,030 1234567,https://de.linkedin.com/in/lukasbecker?trk=public_profile
+Chloe,Martin,chloe.martin@example.fr,Product Manager,FR,Atelier Numérique,0,+33 1 23 45 67 89,
+Diego,Herrera,diego.herrera@example.com,Software Engineer,MX,Andes Cloud,3,(55) 1234-5678,http://www.linkedin.com/in/diego-herrera-dev#about
+Hannah,Kim,hannah.kim@example.com,Marketing Lead,KR,Seoul Media,5,,
+Noah,Fischer,noah.fischer@example.ch,Founder,CH,Alpenpeak,9,+41 44 668 18 00,www.linkedin.com/in/noah-fischer
+Amara,Okafor,amara.okafor@example.com,Operations Manager,NG,Lagos Logistics,1,+234 802 123 4567,
+Sofia,Rossi,sofia.rossi@example.it,VP Engineering,IT,Tessera Systems,6,+39 06 1234 5678,https://it.linkedin.com/in/sofiarossi/
+Ethan,Brooks,ethan.brooks@example.com,Account Executive,US,Harbor Freight Tech,,+1-415-555-0132x204,https://www.linkedin.com/company/harbor-freight-tech
+Yuki,Tanaka,yuki.tanaka@example.jp,Designer,JP,Kumo Studio,8,+81 3-1234-5678,

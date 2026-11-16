@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { IconExternalLink, IconPhone } from '@tabler/icons-react'
 import { FC, useState } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { toLinkedinLink, toTelHref } from '../utils/leadDisplay'
 import { MessageTemplateModal } from './MessageTemplateModal'
 import { CsvImportModal } from './CsvImportModal'
 import { summarizeVerifyEmails } from '../utils/verifyEmailsSummary'
@@ -347,6 +349,12 @@ export const LeadsList: FC = () => {
                   scope="col"
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
                 >
+                  Phone
+                </th>
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
+                >
                   Job Title
                 </th>
                 <th
@@ -354,6 +362,18 @@ export const LeadsList: FC = () => {
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
                 >
                   Company
+                </th>
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
+                >
+                  Years at company
+                </th>
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
+                >
+                  LinkedIn
                 </th>
                 <th
                   scope="col"
@@ -404,10 +424,23 @@ export const LeadsList: FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        <PhoneCell phoneNumber={lead.phoneNumber} />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{lead.jobTitle || '-'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{lead.companyName || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{lead.yearsAtCompany ?? '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        <LinkedinCell url={lead.linkedinUrl} />
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{lead.countryCode || '-'}</div>
@@ -464,5 +497,45 @@ export const LeadsList: FC = () => {
 
       <CsvImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
     </div>
+  )
+}
+
+const PhoneCell: FC<{ phoneNumber: string | null }> = ({ phoneNumber }) => {
+  if (!phoneNumber) return '-'
+  // Always a call link, even for numbers the dialer may not understand (no country
+  // prefix, odd formats): the device decides what to do with it.
+  return (
+    <a
+      href={toTelHref(phoneNumber)}
+      title={`Call ${phoneNumber}`}
+      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
+    >
+      <IconPhone aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      {phoneNumber}
+    </a>
+  )
+}
+
+const LinkedinCell: FC<{ url: string | null }> = ({ url }) => {
+  if (!url) return '-'
+  const link = toLinkedinLink(url)
+  if (!link) return url
+  return (
+    <span className="inline-flex max-w-56 items-center gap-1.5">
+      {/* Plain text so the URL can be selected and copied; the icon opens it. */}
+      <span className="truncate" title={url}>
+        {link.label}
+      </span>
+      <a
+        href={link.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open ${link.label} on LinkedIn in a new tab`}
+        title="Open in a new tab"
+        className="shrink-0 rounded text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <IconExternalLink aria-hidden className="h-4 w-4" />
+      </a>
+    </span>
   )
 }

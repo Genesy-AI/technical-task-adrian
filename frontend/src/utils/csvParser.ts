@@ -1,5 +1,12 @@
 import Papa from 'papaparse'
 import { isValidCountryCode, normalizeCountryCode } from './countryCodes'
+import {
+  isValidPhoneNumber,
+  normalizeLinkedinUrl,
+  normalizePhoneNumber,
+  parseYearsAtCompany,
+  YEARS_AT_COMPANY_MAX,
+} from './leadFieldValidation'
 
 export interface CsvLead {
   firstName: string
@@ -8,6 +15,12 @@ export interface CsvLead {
   jobTitle?: string
   countryCode?: string
   companyName?: string
+  /** As typed (trimmed); kept even when invalid so the preview can show it. */
+  phoneNumber?: string
+  /** Undefined when blank or invalid; an invalid value is quoted in `errors`. */
+  yearsAtCompany?: number
+  /** Normalized when valid; the trimmed input when invalid, so the preview can show it. */
+  linkedinUrl?: string
   isValid: boolean
   errors: string[]
   rowIndex: number
@@ -50,6 +63,9 @@ export const parseCsv = (content: string): CsvLead[] => {
     if (Object.values(row).every((value) => !value)) return
 
     const lead: Partial<CsvLead> = { rowIndex: index + 2 }
+    // Parsed after the loop, from the raw text, so error messages can quote the input.
+    let yearsAtCompanyText = ''
+    let linkedinUrlText = ''
 
     Object.entries(row).forEach(([header, value]) => {
       const normalizedHeader = header.toLowerCase().replace(/[^a-z]/g, '')
@@ -74,8 +90,25 @@ export const parseCsv = (content: string): CsvLead[] => {
         case 'companyname':
           lead.companyName = trimmedValue || undefined
           break
+        case 'phonenumber':
+        case 'phone':
+          lead.phoneNumber = normalizePhoneNumber(trimmedValue)
+          break
+        case 'yearsatcompany':
+        case 'yearsinrole':
+          yearsAtCompanyText = trimmedValue
+          break
+        case 'linkedinurl':
+        case 'linkedin':
+          linkedinUrlText = trimmedValue
+          break
       }
     })
+
+    lead.yearsAtCompany = parseYearsAtCompany(yearsAtCompanyText)
+    const normalizedLinkedinUrl = normalizeLinkedinUrl(linkedinUrlText)
+    // An invalid URL is kept as typed so the preview shows what was rejected.
+    lead.linkedinUrl = normalizedLinkedinUrl ?? (linkedinUrlText || undefined)
 
     const errors: string[] = []
     if (!lead.firstName?.trim()) {
@@ -91,6 +124,17 @@ export const parseCsv = (content: string): CsvLead[] => {
     }
     if (lead.countryCode && !isValidCountryCode(lead.countryCode)) {
       errors.push(`Invalid country code "${lead.countryCode}" (expected ISO 3166-1 alpha-2, e.g. US)`)
+    }
+    if (lead.phoneNumber && !isValidPhoneNumber(lead.phoneNumber)) {
+      errors.push(`Invalid phone number "${lead.phoneNumber}"`)
+    }
+    if (yearsAtCompanyText && lead.yearsAtCompany === undefined) {
+      errors.push(
+        `Invalid years at company "${yearsAtCompanyText}" (expected a whole number from 0 to ${YEARS_AT_COMPANY_MAX})`
+      )
+    }
+    if (linkedinUrlText && normalizedLinkedinUrl === undefined) {
+      errors.push(`Invalid LinkedIn URL "${linkedinUrlText}"`)
     }
 
     data.push({
