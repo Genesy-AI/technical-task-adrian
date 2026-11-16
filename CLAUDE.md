@@ -11,9 +11,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Running in parallel worktrees
 
 This repo is developed in several git worktrees at once (via Orca), so every port and backing-service pointer comes from env vars. Each worktree gets its own values; never hardcode them. See `docs/adr/0001-per-worktree-runtime-config.md`.
-- `scripts/worktree-setup.sh` (run automatically by Orca through `orca.yaml`, or by hand) writes `backend/.env` and `frontend/.env.local`, creates the worktree's Temporal namespace and installs dependencies. Read those two files for this worktree's API/web ports. They are gitignored, and new variables go in `backend/.env.example` too.
+- `scripts/worktree-setup.sh` (run automatically by Orca through `orca.yaml`, or by hand) writes `backend/.env` and `frontend/.env.local`, creates the worktree's Temporal namespace, enables the repo git hooks (`.githooks/`) and installs dependencies. Read those two files for this worktree's API/web ports. They are gitignored, and new variables go in `backend/.env.example` too.
 - A single Temporal dev server on `localhost:7233` is shared by all worktrees. Each worktree uses its own namespace `tinyenginy-<worktree-dir>`, which isolates workflows and task queues. Don't start another dev server.
 - **`backend/prisma/dev.db` is committed, and running the app modifies it. Commit it only when a migration changes the schema or the user asks; otherwise leave it out of commits (`git restore backend/prisma/dev.db` to discard local data).**
+
+## CI and commits
+
+- **Before every push, run `scripts/ci.sh` and push only if it passes.** It runs exactly what `.github/workflows/ci.yml` runs on a PR: Conventional Commits check of the branch, then for each package a frozen-lockfile install, `format:check`, `lint` (frontend), `build` and the tests. `scripts/ci.sh backend` (or `frontend`, `commits`) runs one part. Fix failures properly instead of loosening the checks. If a check changes, change it in `scripts/ci.sh` so CI and local runs stay identical.
+- **Every commit message and every PR title follows [Conventional Commits](https://www.conventionalcommits.org):** `<type>(<optional scope>)!: <description>`, header ≤ 100 chars. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Use `backend`, `frontend`, `ci`, … as scopes, and `!` plus a `BREAKING CHANGE:` footer for breaking changes. The rules live in `scripts/check-commit-msg.sh`. The `.githooks/commit-msg` hook (enabled by `scripts/worktree-setup.sh` via `core.hooksPath`) and CI both call it. Never bypass the hook with `--no-verify`. CI rejects non-conventional commits anywhere in the PR, including `fixup!` ones, so squash them before pushing.
 
 ## Commands
 
@@ -22,12 +27,12 @@ Backend (`cd backend`):
 - `pnpm dev`: ensures the Temporal namespace exists (`pnpm temporal:namespace`), then starts the API on `$PORT` (nodemon + ts-node).
 - `pnpm migrate:dev`: apply or create Prisma migrations after editing `prisma/schema.prisma`. Follow with `pnpm gen:prisma` if the client is stale.
 - `pnpm test`: vitest (node env). Single file: `pnpm vitest run src/utils/messageGenerator.test.ts`. Single test: add `-t "<name>"`.
-- `pnpm build`, `pnpm format` (prettier).
+- `pnpm build`, `pnpm format` / `pnpm format:check` (prettier).
 
 Frontend (`cd frontend`):
 - `pnpm dev`: Vite dev server on `$VITE_PORT` (strict). `VITE_API_URL`/`VITE_PORT` defaults are in `frontend/.env`; the worktree's overrides are in `frontend/.env.local`.
 - `pnpm test`: vitest (jsdom, setup in `src/test/setup.ts`). Single file: `pnpm vitest run src/utils/csvParser.test.ts`.
-- `pnpm lint` (eslint, zero warnings allowed), `pnpm build` (`tsc -b` + vite), `pnpm format`.
+- `pnpm lint` (eslint flat config in `eslint.config.js`, zero warnings allowed), `pnpm build` (`tsc -b` + vite), `pnpm format` / `pnpm format:check`.
 
 ## Architecture
 
