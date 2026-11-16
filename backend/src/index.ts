@@ -254,6 +254,24 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
   }
 })
 
+/**
+ * Temporal wraps failures (WorkflowFailedError -> ActivityFailure -> TimeoutFailure),
+ * and the outer message is just "Workflow execution failed". Report the innermost one.
+ */
+function rootCauseMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'Unknown error'
+  }
+  let current: Error = error
+  for (;;) {
+    const { cause } = current as { cause?: unknown }
+    if (!(cause instanceof Error)) {
+      return current.message
+    }
+    current = cause
+  }
+}
+
 app.post('/leads/verify-emails', async (req: Request, res: Response) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ error: 'Request body is required and must be valid JSON' })
@@ -287,6 +305,10 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
           taskQueue: config.temporal.taskQueue,
           workflowId: `verify-email-${lead.id}-${Date.now()}`,
           args: [lead.email],
+          // Backstop so this request cannot wait forever, e.g. when no worker
+          // polls the task queue. The activity retry policy normally fails
+          // the workflow well before this.
+          workflowExecutionTimeout: '30 seconds',
         })
 
         await prisma.lead.update({
@@ -300,7 +322,7 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
         errors.push({
           leadId: lead.id,
           leadName: `${lead.firstName} ${lead.lastName}`.trim(),
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: rootCauseMessage(error),
         })
       }
     }
