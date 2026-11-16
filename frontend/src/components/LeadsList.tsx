@@ -64,6 +64,7 @@ export const LeadsList: FC = () => {
             ))}
           </ul>
           {summary.remainingFailures > 0 && <p className="mt-1">and {summary.remainingFailures} more</p>}
+          <p className="mt-1">Please try again.</p>
         </div>,
         // Long enough to read the list.
         { id: VERIFY_EMAILS_TOAST_ID, duration: 8000 }
