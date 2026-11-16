@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Enforces Conventional Commits. Enabled by scripts/worktree-setup.sh
+# (git config core.hooksPath .githooks).
+exec "$(git rev-parse --show-toplevel)/scripts/check-commit-msg.sh" --file "$1"

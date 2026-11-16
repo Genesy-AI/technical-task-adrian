@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "main": "index.js",
   "private": true,
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "start": "node ./dist/index.js",
     "dev": "pnpm temporal:namespace && nodemon ./src/index.ts",
     "build": "tsc -p .",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "gen:prisma": "prisma generate",
     "migrate:dev": "prisma migrate dev",
     "temporal:namespace": "./scripts/ensure-temporal-namespace.sh",
