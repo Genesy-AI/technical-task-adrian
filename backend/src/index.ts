@@ -5,6 +5,7 @@ import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { runTemporalWorker } from './worker'
 import { getTemporalClient } from './temporalClient'
+import { verificationErrorMessage } from './utils/verificationError'
 const prisma = new PrismaClient()
 const app = express()
 app.use(express.json())
@@ -254,24 +255,6 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
   }
 })
 
-/**
- * Temporal wraps failures (WorkflowFailedError -> ActivityFailure -> TimeoutFailure),
- * and the outer message is just "Workflow execution failed". Report the innermost one.
- */
-function rootCauseMessage(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return 'Unknown error'
-  }
-  let current: Error = error
-  for (;;) {
-    const { cause } = current as { cause?: unknown }
-    if (!(cause instanceof Error)) {
-      return current.message
-    }
-    current = cause
-  }
-}
-
 app.post('/leads/verify-emails', async (req: Request, res: Response) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ error: 'Request body is required and must be valid JSON' })
@@ -321,7 +304,7 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
         errors.push({
           leadId: lead.id,
           leadName: `${lead.firstName} ${lead.lastName}`.trim(),
-          error: rootCauseMessage(error),
+          error: verificationErrorMessage(lead.id, error),
         })
       }
     }
