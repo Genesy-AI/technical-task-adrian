@@ -1,6 +1,8 @@
 # Orca (https://orca.dev) repo hooks. Orca reads this file from the new worktree's
 # checkout, so changes only apply to worktrees branched from a commit that has them.
+# See docs/adr/0001-per-worktree-runtime-config.md.
 scripts:
   # Gives the worktree its own ports and Temporal namespace, then installs dependencies.
-  # See docs/adr/0001-per-worktree-runtime-config.md.
   setup: ./scripts/worktree-setup.sh
+  # Deletes the worktree's Temporal namespace. Never fails, so it can't block removal.
+  archive: ./scripts/worktree-teardown.sh
