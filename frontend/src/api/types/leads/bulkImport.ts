@@ -15,7 +15,7 @@ export interface LeadsBulkImportOutput {
   duplicatesSkipped: number
   invalidLeads: number
   errors: Array<{
-    lead: any
+    lead: unknown
     error: string
   }>
 }
