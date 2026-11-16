@@ -5,11 +5,12 @@
   "private": true,
   "scripts": {
     "start": "node ./dist/index.js",
-    "dev": "nodemon ./src/index.ts",
+    "dev": "pnpm temporal:namespace && nodemon ./src/index.ts",
     "build": "tsc -p .",
     "format": "prettier --write .",
     "gen:prisma": "prisma generate",
     "migrate:dev": "prisma migrate dev",
+    "temporal:namespace": "./scripts/ensure-temporal-namespace.sh",
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",

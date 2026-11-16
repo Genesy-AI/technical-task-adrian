@@ -57,22 +57,30 @@ Set the provided `ANTHROPIC_API_KEY` in your shell before running the project:
 export ANTHROPIC_API_KEY="your-provided-key"
 ```
 
+**Configuration (one‑time, per checkout)**
+
+All ports and backing-service addresses come from environment variables (see `backend/.env.example` and `frontend/.env`). The setup script generates them for the current checkout, giving each git worktree its own ports and Temporal namespace so several can run at once. [Orca](https://orca.dev) runs it automatically for new worktrees (`orca.yaml`). Background: [ADR 0001](docs/adr/0001-per-worktree-runtime-config.md).
+
+```zsh
+temporal server start-dev    # One shared Temporal server for all checkouts (add --db-filename <file> to persist)
+./scripts/worktree-setup.sh  # Writes backend/.env + frontend/.env.local, creates the Temporal namespace, installs dependencies
+```
+
 **Backend (one‑time)**
 
 ```zsh
 cd backend
 nvm use                   # Ensure the Node version from .nvmrc
-pnpm install              # Install dependencies
+pnpm install              # Install dependencies (done by the setup script)
 pnpm migrate:dev          # Sync local SQLite with Prisma schema
-pnpm gen:prisma           # Generate Prisma client
-temporal server start-dev # Starts Temporal server
+pnpm gen:prisma           # Generate Prisma client (done by the setup script)
 ```
 
 **Backend (develop)**
 
 ```zsh
 cd backend
-pnpm run dev           # Starts the API server
+pnpm run dev           # Starts the API server on $PORT (backend/.env)
 ```
 
 When you change the [Prisma](https://www.prisma.io/docs) schema:
@@ -92,7 +100,7 @@ pnpm install
 
 ```zsh
 cd frontend
-pnpm run dev           # Starts the dev server
+pnpm run dev           # Starts the dev server on $VITE_PORT (frontend/.env.local)
 ```
 
 ## Task Description
