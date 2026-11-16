@@ -3,6 +3,9 @@ import type * as activities from './activities'
 
 const { verifyEmail } = proxyActivities<typeof activities>({
   startToCloseTimeout: '1 second',
+  // Also sets how often heartbeats reach the server (80% of this value), which
+  // is how a long-running attempt learns that it has timed out.
+  heartbeatTimeout: '500 milliseconds',
   // Temporal's default retry policy retries forever. An attempt that keeps
   // timing out (a slow or unresponsive provider) would then keep the workflow
   // running indefinitely, so bound it: 3 attempts with exponential backoff

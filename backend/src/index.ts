@@ -1,10 +1,10 @@
 import { config } from './config'
 import { PrismaClient } from '@prisma/client'
 import express, { Request, Response } from 'express'
-import { Connection, Client } from '@temporalio/client'
 import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { runTemporalWorker } from './worker'
+import { getTemporalClient } from './temporalClient'
 const prisma = new PrismaClient()
 const app = express()
 app.use(express.json())
@@ -292,8 +292,7 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No leads found with the provided IDs' })
     }
 
-    const connection = await Connection.connect({ address: config.temporal.address })
-    const client = new Client({ connection, namespace: config.temporal.namespace })
+    const client = await getTemporalClient()
 
     let verifiedCount = 0
     const results: Array<{ leadId: number; emailVerified: boolean }> = []
@@ -326,8 +325,6 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
         })
       }
     }
-
-    await connection.close()
 
     res.json({ success: true, verifiedCount, results, errors })
   } catch (error) {
