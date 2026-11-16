@@ -3,12 +3,13 @@
 # calls one check of this script, so local and CI runs cannot drift apart. Run it
 # before pushing:
 #
-#   scripts/ci.sh                      # everything: commits, backend, frontend
+#   scripts/ci.sh                      # everything: commits, contracts, backend, frontend
 #   scripts/ci.sh frontend             # every check of one target
 #   scripts/ci.sh frontend lint test   # specific checks of one target
 #
 # Targets and their checks, in order:
 #   commits:  conventional            (merge base with $CI_BASE_REF, default origin/main, to HEAD)
+#   contracts: lead-template-fields   (backend and frontend copies match, see ADR 0002; Node only)
 #   backend:  install prisma format build test
 #   frontend: install format lint build test
 set -euo pipefail
@@ -19,6 +20,7 @@ cd "$ROOT"
 checks_of() { # <target>: prints its checks in run order, fails for unknown targets
   case "$1" in
     commits) echo conventional ;;
+    contracts) echo lead-template-fields ;;
     backend) echo install prisma format build test ;;
     frontend) echo install format lint build test ;;
     *) return 1 ;;
@@ -28,6 +30,11 @@ checks_of() { # <target>: prints its checks in run order, fails for unknown targ
 commits_conventional() {
   local base="${CI_BASE_REF:-origin/main}"
   scripts/check-commit-msg.sh --range "$(git merge-base "$base" HEAD)..HEAD"
+}
+
+# The data modules are loaded with Node's type stripping (flag needed before Node 22.18).
+contracts_lead_template_fields() {
+  node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-lead-template-fields.mjs
 }
 
 # Shared by both packages; run from inside the package directory.
@@ -42,8 +49,8 @@ backend_prisma() { pnpm gen:prisma; }
 run_check() { # <target> <check>
   local target="$1" check="$2" fn
   printf '\n\033[1;34m[ci] %s: %s\033[0m\n' "$target" "$check"
-  if [[ $target == commits ]]; then
-    fn="commits_$check"
+  if [[ $target == commits || $target == contracts ]]; then # repo-level, run from the root
+    fn="${target}_${check//-/_}"
   else
     cd "$ROOT/$target"
     fn="pkg_$check"
@@ -57,7 +64,7 @@ run_target() { # <target> [check...]
   local target="$1" valid check
   shift
   if ! valid="$(checks_of "$target")"; then
-    echo "unknown target '$target' (expected: commits, backend, frontend)" >&2
+    echo "unknown target '$target' (expected: commits, contracts, backend, frontend)" >&2
     exit 2
   fi
   # shellcheck disable=SC2086 # split the space-separated check list
@@ -74,6 +81,6 @@ run_target() { # <target> [check...]
 if (($#)); then
   run_target "$@"
 else
-  for target in commits backend frontend; do run_target "$target"; done
+  for target in commits contracts backend frontend; do run_target "$target"; done
 fi
 printf '\n\033[1;32m[ci] passed: %s\033[0m\n' "${*:-all checks}"

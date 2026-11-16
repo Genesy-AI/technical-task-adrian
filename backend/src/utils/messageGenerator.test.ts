@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { generateMessageFromTemplate, Lead } from './messageGenerator'
+import { LEAD_TEMPLATE_FIELDS } from '../leadTemplateFields'
 
 describe('generateMessageFromTemplate', () => {
   const fullLead: Lead = {
@@ -9,6 +10,9 @@ describe('generateMessageFromTemplate', () => {
     jobTitle: 'Software Engineer',
     companyName: 'Tech Corp',
     countryCode: 'US',
+    phoneNumber: '+1-280-754-0462x2154',
+    yearsAtCompany: 7,
+    linkedinUrl: 'https://www.linkedin.com/in/john-doe',
   }
 
   const partialLead: Lead = {
@@ -204,6 +208,57 @@ describe('generateMessageFromTemplate', () => {
       const template = 'Hi {firstName} from {companyName}!'
       const result = generateMessageFromTemplate(template, emojiLead)
       expect(result).toBe('Hi John 😊 from TechCorp 🚀!')
+    })
+  })
+
+  describe('new lead fields', () => {
+    it('should replace phoneNumber, yearsAtCompany and linkedinUrl', () => {
+      const template = 'Call {phoneNumber}. {yearsAtCompany} years in. Profile: {linkedinUrl}'
+      const result = generateMessageFromTemplate(template, fullLead)
+      expect(result).toBe(
+        'Call +1-280-754-0462x2154. 7 years in. Profile: https://www.linkedin.com/in/john-doe'
+      )
+    })
+
+    it('should treat yearsAtCompany 0 as a value', () => {
+      const result = generateMessageFromTemplate('{yearsAtCompany} years', {
+        firstName: 'New',
+        yearsAtCompany: 0,
+      })
+      expect(result).toBe('0 years')
+    })
+
+    it('should throw when yearsAtCompany is null', () => {
+      expect(() =>
+        generateMessageFromTemplate('{yearsAtCompany} years', { firstName: 'New', yearsAtCompany: null })
+      ).toThrow('Missing required field: yearsAtCompany')
+    })
+
+    it('should throw when phoneNumber or linkedinUrl is missing', () => {
+      expect(() => generateMessageFromTemplate('{phoneNumber}', minimalLead)).toThrow(
+        'Missing required field: phoneNumber'
+      )
+      expect(() => generateMessageFromTemplate('{linkedinUrl}', minimalLead)).toThrow(
+        'Missing required field: linkedinUrl'
+      )
+    })
+
+    it('should resolve every LEAD_TEMPLATE_FIELDS key', () => {
+      for (const { key } of LEAD_TEMPLATE_FIELDS) {
+        expect(generateMessageFromTemplate(`[{${key}}]`, fullLead)).toBe(`[${String(fullLead[key])}]`)
+      }
+    })
+  })
+
+  describe('literal insertion of values', () => {
+    it.each(['$&', '$1', '$$', '$`', "$'", '$<name>'])('should insert %j literally', (pattern) => {
+      const lead: Lead = { firstName: `A${pattern}B` }
+      expect(generateMessageFromTemplate('Hi {firstName}!', lead)).toBe(`Hi A${pattern}B!`)
+    })
+
+    it('should not expand variables that appear inside inserted values', () => {
+      const lead: Lead = { firstName: '{email}', email: 'x@example.com' }
+      expect(generateMessageFromTemplate('Hi {firstName} <{email}>', lead)).toBe('Hi {email} <x@example.com>')
     })
   })
 })

@@ -263,4 +263,121 @@ Jane,Johnson,jane@example.com`
       expect(badCountryRows.map((l) => l.countryCode).sort()).toEqual(['12', 'XXX', 'XXX', 'XXX', 'XXX'])
     })
   })
+
+  describe('phone, years at company and LinkedIn URL', () => {
+    const csvWith = (header: string, value: string) =>
+      `firstName,lastName,email,${header}\nJohn,Doe,john@example.com,"${value}"`
+
+    it('parses all three fields', () => {
+      const csv = `firstName,lastName,email,phoneNumber,yearsAtCompany,linkedinUrl
+Ada,Lovelace,ada@example.com, +1-280-754-0462x2154 ,0,linkedin.com/in/ada-lovelace/`
+
+      const [lead] = parseCsv(csv)
+
+      expect(lead).toEqual({
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        phoneNumber: '+1-280-754-0462x2154',
+        yearsAtCompany: 0,
+        linkedinUrl: 'https://linkedin.com/in/ada-lovelace',
+        isValid: true,
+        errors: [],
+        rowIndex: 2,
+      })
+    })
+
+    it.each([
+      ['phone', 'phoneNumber', '555-123-4567', '555-123-4567'],
+      ['Phone Number', 'phoneNumber', '555-123-4567', '555-123-4567'],
+      ['yearsInRole', 'yearsAtCompany', '7', 7],
+      ['years_at_company', 'yearsAtCompany', '7', 7],
+      ['linkedin', 'linkedinUrl', 'www.linkedin.com/in/ada', 'https://www.linkedin.com/in/ada'],
+      ['LinkedIn URL', 'linkedinUrl', 'www.linkedin.com/in/ada', 'https://www.linkedin.com/in/ada'],
+    ] as const)('maps the "%s" header to %s', (header, field, value, expected) => {
+      const [lead] = parseCsv(csvWith(header, value))
+      expect(lead[field]).toBe(expected)
+      expect(lead.isValid).toBe(true)
+    })
+
+    it('treats blank values as absent', () => {
+      const csv = `firstName,lastName,email,phoneNumber,yearsAtCompany,linkedinUrl
+John,Doe,john@example.com, , ,`
+
+      const [lead] = parseCsv(csv)
+
+      expect(lead.phoneNumber).toBeUndefined()
+      expect(lead.yearsAtCompany).toBeUndefined()
+      expect(lead.linkedinUrl).toBeUndefined()
+      expect(lead.isValid).toBe(true)
+    })
+
+    it.each(['abc', '123', '555-123-4567 #12'])('marks the lead invalid for phone number "%s"', (phone) => {
+      const [lead] = parseCsv(csvWith('phoneNumber', phone))
+      expect(lead.isValid).toBe(false)
+      expect(lead.phoneNumber).toBe(phone)
+      expect(lead.errors).toEqual([`Invalid phone number "${phone}"`])
+    })
+
+    it.each(['abc', '-1', '81', '2.5', '1e1'])(
+      'marks the lead invalid for years at company "%s"',
+      (years) => {
+        const [lead] = parseCsv(csvWith('yearsAtCompany', years))
+        expect(lead.isValid).toBe(false)
+        expect(lead.yearsAtCompany).toBeUndefined()
+        expect(lead.errors).toEqual([
+          `Invalid years at company "${years}" (expected a whole number from 0 to 80)`,
+        ])
+      }
+    )
+
+    it.each(['https://example.com/in/ada', 'linkedin.com', 'not a url'])(
+      'marks the lead invalid for LinkedIn URL "%s", keeping the input for the preview',
+      (url) => {
+        const [lead] = parseCsv(csvWith('linkedinUrl', url))
+        expect(lead.isValid).toBe(false)
+        expect(lead.linkedinUrl).toBe(url)
+        expect(lead.errors).toEqual([`Invalid LinkedIn URL "${url}"`])
+      }
+    )
+
+    it('reports field errors after the required-field errors', () => {
+      const csv = `firstName,lastName,email,phoneNumber,yearsAtCompany,linkedinUrl
+,Doe,john@example.com,abc,abc,abc`
+
+      const [lead] = parseCsv(csv)
+
+      expect(lead.errors).toEqual([
+        'First name is required',
+        'Invalid phone number "abc"',
+        'Invalid years at company "abc" (expected a whole number from 0 to 80)',
+        'Invalid LinkedIn URL "abc"',
+      ])
+    })
+
+    it('parses every phone number and yearsInRole value in the sample files', () => {
+      const docs = resolve(__dirname, '../../../docs')
+      for (const file of [
+        'leads-ok-1.csv',
+        'leads-ok-2.csv',
+        'leads-ok-3.csv',
+        'leads-ok-missing fields.csv',
+        'leads-with-errors.csv',
+      ]) {
+        const leads = parseCsv(readFileSync(resolve(docs, file), 'utf-8'))
+        for (const lead of leads) {
+          const where = `${file} row ${lead.rowIndex}`
+          expect(
+            lead.errors.filter((e) => /phone|years|LinkedIn/.test(e)),
+            where
+          ).toEqual([])
+        }
+      }
+
+      const [first] = parseCsv(readFileSync(resolve(docs, 'leads-ok-1.csv'), 'utf-8'))
+      expect(first.phoneNumber).toBe('+1-280-754-0462x2154')
+      expect(first.yearsAtCompany).toBe(2)
+      expect(first.isValid).toBe(true)
+    })
+  })
 })

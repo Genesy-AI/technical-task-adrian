@@ -1,8 +1,20 @@
-import { FC, useState, useEffect, useCallback, useRef } from 'react'
+import { FC, useState, useEffect, useLayoutEffect, useCallback, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import type { LeadTemplateField } from '../leadTemplateFields'
+import {
+  filterTemplateFields,
+  findUnknownVariables,
+  getActiveVariableQuery,
+  listboxOptionId,
+  moveActiveIndex,
+  replaceRange,
+  toTemplateVariable,
+} from '../utils/templateVariables'
+import { TemplateVariableListbox } from './TemplateVariableListbox'
+import { TemplateVariablePicker } from './TemplateVariablePicker'
 
 interface MessageTemplateModalProps {
   isOpen: boolean
@@ -24,7 +36,28 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
     errors: Array<{ leadId: number; leadName: string; error: string }>
   } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Caret position to restore after a programmatic edit, applied once React has rendered the new value.
+  const pendingCaretRef = useRef<number | null>(null)
+  // Collapsed caret in the textarea, or null when it is not focused or text is selected.
+  const [caret, setCaret] = useState<number | null>(null)
+  // `{` position whose suggestions the user dismissed with Escape.
+  const [dismissedSuggestionsAt, setDismissedSuggestionsAt] = useState<number | null>(null)
+  const [suggestionHighlight, setSuggestionHighlight] = useState({ queryKey: '', index: 0 })
+  const suggestionsId = useId()
+  const unknownVariablesId = useId()
   const queryClient = useQueryClient()
+
+  const unknownVariables = findUnknownVariables(template)
+  const activeQuery = caret === null ? null : getActiveVariableQuery(template, caret)
+  const suggestions = activeQuery ? filterTemplateFields(activeQuery.query) : []
+  const showSuggestions =
+    activeQuery !== null && suggestions.length > 0 && dismissedSuggestionsAt !== activeQuery.start
+  const suggestionQueryKey = activeQuery ? `${activeQuery.start}:${activeQuery.query}` : ''
+  // The highlight resets to the first suggestion whenever the typed partial changes.
+  const activeSuggestionIndex =
+    suggestionHighlight.queryKey === suggestionQueryKey
+      ? Math.min(suggestionHighlight.index, suggestions.length - 1)
+      : 0
 
   const generateMessagesMutation = useMutation({
     mutationFn: async (data: { leadIds: number[]; template: string }) => api.leads.generateMessages(data),
@@ -60,7 +93,7 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (template.trim() && selectedLeadIds.length > 0) {
+    if (template.trim() && selectedLeadIds.length > 0 && unknownVariables.length === 0) {
       setGenerationResult(null)
 
       generateMessagesMutation.mutate({
@@ -75,6 +108,7 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
       onClose()
       setTemplate('')
       setGenerationResult(null)
+      setDismissedSuggestionsAt(null)
     }
   }, [generateMessagesMutation.isPending, onClose])
 
@@ -86,7 +120,10 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
 
   useEffect(() => {
     const handleEscapeKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      // Inner widgets (variable picker, `{` suggestions) handle their own Escape and mark it with
+      // preventDefault(); their React handlers run before this document listener, so only the
+      // innermost open thing closes.
+      if (e.key === 'Escape' && isOpen && !e.defaultPrevented) {
         handleClose()
       }
     }
@@ -106,20 +143,69 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
     }
   }, [isOpen, handleClose])
 
-  const availableFields = ['firstName', 'lastName', 'email', 'jobTitle', 'companyName', 'countryCode']
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    const position = pendingCaretRef.current
+    if (textarea && position !== null) {
+      pendingCaretRef.current = null
+      textarea.focus()
+      textarea.setSelectionRange(position, position)
+      setCaret(position)
+    }
+  }, [template])
 
-  const insertField = (field: string) => {
-    if (textareaRef.current) {
-      const textarea = textareaRef.current
-      const start = textarea.selectionStart
-      const end = textarea.selectionEnd
-      const newTemplate = template.substring(0, start) + `{${field}}` + template.substring(end)
-      setTemplate(newTemplate)
+  const replaceTemplateRange = (start: number, end: number, insertion: string) => {
+    const result = replaceRange(template, start, end, insertion)
+    pendingCaretRef.current = result.caret
+    setTemplate(result.text)
+  }
 
-      setTimeout(() => {
-        textarea.focus()
-        textarea.setSelectionRange(start + field.length + 2, start + field.length + 2)
-      }, 0)
+  /** Picker: insert `{key}` at the caret, replacing any selected text. */
+  const insertVariable = (field: LeadTemplateField) => {
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? template.length
+    const end = textarea?.selectionEnd ?? template.length
+    replaceTemplateRange(start, end, toTemplateVariable(field.key))
+  }
+
+  /** Autocomplete: replace the `{partial` being typed with `{key}`. */
+  const acceptSuggestion = (field: LeadTemplateField) => {
+    if (activeQuery) replaceTemplateRange(activeQuery.start, activeQuery.end, toTemplateVariable(field.key))
+  }
+
+  const syncCaret = (textarea: HTMLTextAreaElement) => {
+    setCaret(textarea.selectionStart === textarea.selectionEnd ? textarea.selectionStart : null)
+  }
+
+  const handleTemplateChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target
+    setTemplate(textarea.value)
+    syncCaret(textarea)
+    // A dismissal only applies to the `{` it was made on; leaving that variable re-arms suggestions.
+    const next = getActiveVariableQuery(textarea.value, textarea.selectionStart)
+    if (next?.start !== dismissedSuggestionsAt) setDismissedSuggestionsAt(null)
+  }
+
+  const handleTemplateKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!showSuggestions || !activeQuery) return
+    switch (e.key) {
+      case 'ArrowDown':
+      case 'ArrowUp':
+        e.preventDefault()
+        setSuggestionHighlight({
+          queryKey: suggestionQueryKey,
+          index: moveActiveIndex(activeSuggestionIndex, e.key === 'ArrowDown' ? 1 : -1, suggestions.length),
+        })
+        break
+      case 'Enter':
+      case 'Tab':
+        e.preventDefault()
+        acceptSuggestion(suggestions[activeSuggestionIndex])
+        break
+      case 'Escape':
+        e.preventDefault()
+        setDismissedSuggestionsAt(activeQuery.start)
+        break
     }
   }
 
@@ -152,37 +238,65 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="message-template" className="block text-sm font-medium text-gray-700 mb-2">
-                Message Template
-              </label>
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <span className="text-sm text-gray-600">Insert field:</span>
-                  {availableFields.map((field) => (
-                    <button
-                      key={field}
-                      type="button"
-                      onClick={() => insertField(field)}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors"
-                    >
-                      {`{${field}}`}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between mb-2">
+                <label htmlFor="message-template" className="block text-sm font-medium text-gray-700">
+                  Message Template
+                </label>
+                <TemplateVariablePicker
+                  onSelect={insertVariable}
+                  disabled={generateMessagesMutation.isPending}
+                />
+              </div>
+              <div className="relative">
                 <textarea
                   ref={textareaRef}
                   id="message-template"
                   value={template}
-                  onChange={(e) => setTemplate(e.target.value)}
-                  placeholder="Enter your message template here. Use {fieldName} to insert dynamic values.&#10;&#10;Example: Hi {firstName}, I noticed you work at {companyName} as a {jobTitle}. Would you be interested in..."
-                  className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  onChange={handleTemplateChange}
+                  onSelect={(e) => syncCaret(e.currentTarget)}
+                  onBlur={() => setCaret(null)}
+                  onKeyDown={handleTemplateKeyDown}
+                  aria-autocomplete="list"
+                  aria-controls={showSuggestions ? suggestionsId : undefined}
+                  aria-activedescendant={
+                    showSuggestions ? listboxOptionId(suggestionsId, activeSuggestionIndex) : undefined
+                  }
+                  aria-invalid={unknownVariables.length > 0}
+                  aria-describedby={unknownVariables.length > 0 ? unknownVariablesId : undefined}
+                  placeholder="Enter your message template here. Type { to insert a variable.&#10;&#10;Example: Hi {firstName}, I noticed you work at {companyName} as a {jobTitle}. Would you be interested in..."
+                  className={`w-full h-32 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 resize-none ${
+                    unknownVariables.length > 0
+                      ? 'border-red-400 focus:ring-red-500 focus:border-red-500'
+                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
                   required
                 />
+                {showSuggestions && (
+                  <TemplateVariableListbox
+                    id={suggestionsId}
+                    label="Variable suggestions"
+                    options={suggestions}
+                    activeIndex={activeSuggestionIndex}
+                    onActiveIndexChange={(index) =>
+                      setSuggestionHighlight({ queryKey: suggestionQueryKey, index })
+                    }
+                    onSelect={acceptSuggestion}
+                    className="absolute left-0 top-full mt-1 z-10 w-72 bg-white border border-gray-200 rounded-md shadow-lg"
+                  />
+                )}
               </div>
+              {unknownVariables.length > 0 && (
+                <p id={unknownVariablesId} role="alert" className="mt-2 text-sm text-red-600">
+                  {unknownVariables.length === 1 ? 'Unknown variable' : 'Unknown variables'}:{' '}
+                  {unknownVariables.map(toTemplateVariable).join(', ')}. Use “Insert variable” to see the
+                  available ones.
+                </p>
+              )}
               <p className="mt-2 text-sm text-gray-500">
-                Use curly braces around field names (e.g., {`{firstName}`}) to insert dynamic values. If a
-                field is missing for a lead, an error will be shown and no message will be generated for that
-                lead.
+                Type{' '}
+                <kbd className="px-1 font-mono text-xs bg-gray-100 border border-gray-300 rounded">{'{'}</kbd>{' '}
+                or use “Insert variable” to add a lead field such as {`{firstName}`}. If a field is empty for
+                a lead, no message is generated for that lead and the error is listed below.
               </p>
             </div>
 
@@ -259,7 +373,9 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
               {(!generationResult || generationResult.errors.length > 0) && (
                 <button
                   type="submit"
-                  disabled={!template.trim() || generateMessagesMutation.isPending}
+                  disabled={
+                    !template.trim() || unknownVariables.length > 0 || generateMessagesMutation.isPending
+                  }
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {generateMessagesMutation.isPending ? (

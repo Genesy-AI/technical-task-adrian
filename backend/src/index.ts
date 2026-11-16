@@ -4,6 +4,12 @@ import express, { Request, Response } from 'express'
 import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { isValidCountryCode, normalizeCountryCode } from './utils/countryCodes'
+import {
+  isValidPhoneNumber,
+  isValidYearsAtCompany,
+  normalizeLinkedinUrl,
+  normalizePhoneNumber,
+} from './utils/leadFieldValidation'
 import { runTemporalWorker } from './worker'
 import { getTemporalClient } from './temporalClient'
 import { verificationErrorMessage } from './utils/verificationError'
@@ -195,14 +201,21 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
         lead.email.trim() &&
         (lead.countryCode == null ||
           (typeof lead.countryCode === 'string' &&
-            (!lead.countryCode.trim() || isValidCountryCode(lead.countryCode))))
+            (!lead.countryCode.trim() || isValidCountryCode(lead.countryCode)))) &&
+        (lead.phoneNumber == null ||
+          (typeof lead.phoneNumber === 'string' &&
+            (!lead.phoneNumber.trim() || isValidPhoneNumber(lead.phoneNumber)))) &&
+        (lead.yearsAtCompany == null || isValidYearsAtCompany(lead.yearsAtCompany)) &&
+        (lead.linkedinUrl == null ||
+          (typeof lead.linkedinUrl === 'string' &&
+            (!lead.linkedinUrl.trim() || normalizeLinkedinUrl(lead.linkedinUrl) !== null)))
       )
     })
 
     if (validLeads.length === 0) {
       return res.status(400).json({
         error:
-          'No valid leads found. firstName, lastName, and email are required, and countryCode must be an ISO 3166-1 alpha-2 code.',
+          'No valid leads found. firstName, lastName, and email are required; if present, countryCode must be an ISO 3166-1 alpha-2 code, phoneNumber a phone number with 7-15 digits, yearsAtCompany an integer from 0 to 80, and linkedinUrl a linkedin.com URL.',
       })
     }
 
@@ -236,6 +249,9 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
             jobTitle: lead.jobTitle ? lead.jobTitle.trim() : null,
             countryCode: normalizeCountryCode(lead.countryCode) ?? null,
             companyName: lead.companyName ? lead.companyName.trim() : null,
+            phoneNumber: normalizePhoneNumber(lead.phoneNumber) ?? null,
+            yearsAtCompany: lead.yearsAtCompany ?? null,
+            linkedinUrl: normalizeLinkedinUrl(lead.linkedinUrl),
           },
         })
         importedCount++
