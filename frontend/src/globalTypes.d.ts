@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- explicit, greppable escape hatches */
 type $TSFixMe = any
 type $TSFixMeFunction = (...args: any[]) => any
 

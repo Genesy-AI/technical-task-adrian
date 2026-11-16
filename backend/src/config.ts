@@ -23,7 +23,7 @@ function required(name: string): string {
   if (!value) {
     throw new Error(
       `Missing required environment variable ${name}. ` +
-        'Run scripts/worktree-setup.sh or copy backend/.env.example to backend/.env.',
+        'Run scripts/worktree-setup.sh or copy backend/.env.example to backend/.env.'
     )
   }
   return value

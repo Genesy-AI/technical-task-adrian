@@ -12,7 +12,7 @@ import { Split } from 'ts-toolbelt/out/String/Split'
 import { api, ApiOutput } from '..'
 import { ApiModule } from '../utils'
 
-type ActuallyUseMutationOptions = any
+type ActuallyUseMutationOptions = unknown
 type MutationsApi<T extends ApiModule> = {
   [K in keyof T]?: T[K] extends ApiModule ? MutationsApi<T[K]> : ActuallyUseMutationOptions
 }
@@ -36,16 +36,19 @@ const makeOptions = <TData = unknown, TError = DefaultError, TVariables = void, 
 
 export const useApiMutation = <P extends ApiMutationsPaths>(endpointPath: P) => {
   type Options = Path<ApiMutationsOptions, Split<P, '.'>>
+  /* eslint-disable @typescript-eslint/no-explicit-any -- `any` marks the slots ignored by each `infer` */
   const useMutationTyped = useMutation<
     Options extends UseMutationOptions<infer TData, any, any, any> ? TData : unknown,
     Options extends UseMutationOptions<any, infer TError, any, any> ? TError : DefaultError,
     Options extends UseMutationOptions<any, any, infer TVariables, any> ? TVariables : unknown,
     Options extends UseMutationOptions<any, any, any, infer TContext> ? TContext : unknown
   >
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   const queryClient = useQueryClient()
   const allOptions = useMemo(() => apiMutationsOptions(queryClient), [queryClient])
   const options = get(allOptions, endpointPath) as Options
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `Options` is still generic here, so it cannot match useMutation's overloads
   return useMutationTyped(options as any)
 }
 
@@ -69,6 +72,7 @@ const apiMutationsOptions = (queryClient: QueryClient) =>
             countryCode: null,
             companyName: null,
             message: null,
+            emailVerified: null,
             ...input,
           }
           const newLeads: ApiOutput<typeof api.leads.getMany> = [...(previousValue ?? []), newLead]

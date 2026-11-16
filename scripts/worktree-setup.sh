@@ -4,7 +4,7 @@
 #   - picks a free API port and frontend port, unique across all worktrees of the repo
 #   - writes backend/.env and frontend/.env.local (never overwrites existing ones)
 #   - gives the checkout its own Temporal namespace on the shared dev server
-#   - installs dependencies and generates the Prisma client
+#   - enables the repo git hooks (.githooks) and installs dependencies + Prisma client
 #
 # Idempotent: re-running keeps the existing env files and only redoes the cheap steps.
 # Orca runs it on worktree creation (see orca.yaml); run it by hand anywhere else.
@@ -115,6 +115,11 @@ trap - EXIT
 want_node="$(tr -d 'v[:space:]' <backend/.nvmrc)"
 have_node="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo none)"
 [[ "$have_node" == "$want_node" ]] || warn "Node $want_node expected (.nvmrc), found $have_node; run 'nvm use' before developing"
+
+# --- Git hooks ----------------------------------------------------------------------
+# Repo-wide setting (shared by all worktrees); the relative path resolves per worktree.
+git config core.hooksPath .githooks
+log "git hooks enabled (.githooks: Conventional Commits on commit-msg)"
 
 # --- Dependencies -------------------------------------------------------------------
 log "installing backend dependencies"
