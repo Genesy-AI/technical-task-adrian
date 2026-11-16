@@ -1,68 +1,79 @@
 #!/usr/bin/env bash
-# The deterministic checks CI runs on every PR (.github/workflows/ci.yml calls this
-# script, so local and CI runs cannot drift apart). Run it before pushing:
+# The deterministic checks CI runs on every PR. Each step of .github/workflows/ci.yml
+# calls one check of this script, so local and CI runs cannot drift apart. Run it
+# before pushing:
 #
-#   scripts/ci.sh             # everything: commits, backend, frontend
-#   scripts/ci.sh backend     # or any of: commits, backend, frontend
+#   scripts/ci.sh                      # everything: commits, backend, frontend
+#   scripts/ci.sh frontend             # every check of one target
+#   scripts/ci.sh frontend lint test   # specific checks of one target
 #
-# Commits are checked from the merge base with $CI_BASE_REF (default origin/main) to
-# HEAD. Dependencies are installed with --frozen-lockfile, as in CI.
+# Targets and their checks, in order:
+#   commits:  conventional            (merge base with $CI_BASE_REF, default origin/main, to HEAD)
+#   backend:  install prisma format build test
+#   frontend: install format lint build test
 set -euo pipefail
 
 ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 cd "$ROOT"
 
-if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-  group() { echo "::group::$*"; }
-  endgroup() { echo "::endgroup::"; }
-else
-  group() { printf '\n\033[1;34m[ci] %s\033[0m\n' "$*"; }
-  endgroup() { :; }
-fi
-
-step() { # <title> <command...>
-  group "$1"
-  shift
-  "$@"
-  endgroup
-}
-
-check_commits() {
-  local base="${CI_BASE_REF:-origin/main}"
-  step "commits: Conventional Commits since $base" \
-    scripts/check-commit-msg.sh --range "$(git merge-base "$base" HEAD)..HEAD"
-}
-
-check_backend() {
-  cd "$ROOT/backend"
-  step "backend: install" pnpm install --frozen-lockfile
-  step "backend: generate Prisma client" pnpm gen:prisma
-  step "backend: format" pnpm format:check
-  step "backend: build" pnpm build
-  step "backend: test" pnpm exec vitest run
-  cd "$ROOT"
-}
-
-check_frontend() {
-  cd "$ROOT/frontend"
-  step "frontend: install" pnpm install --frozen-lockfile
-  step "frontend: format" pnpm format:check
-  step "frontend: lint" pnpm lint
-  step "frontend: build" pnpm build
-  step "frontend: test" pnpm exec vitest run
-  cd "$ROOT"
-}
-
-targets=("$@")
-((${#targets[@]})) || targets=(commits backend frontend)
-for target in "${targets[@]}"; do
-  case "$target" in
-    commits | backend | frontend) "check_$target" ;;
-    *)
-      echo "unknown target '$target' (expected: commits, backend, frontend)" >&2
-      exit 2
-      ;;
+checks_of() { # <target>: prints its checks in run order, fails for unknown targets
+  case "$1" in
+    commits) echo conventional ;;
+    backend) echo install prisma format build test ;;
+    frontend) echo install format lint build test ;;
+    *) return 1 ;;
   esac
-done
-group "all checks passed: ${targets[*]}"
-endgroup
+}
+
+commits_conventional() {
+  local base="${CI_BASE_REF:-origin/main}"
+  scripts/check-commit-msg.sh --range "$(git merge-base "$base" HEAD)..HEAD"
+}
+
+# Shared by both packages; run from inside the package directory.
+pkg_install() { pnpm install --frozen-lockfile; }
+pkg_format() { pnpm format:check; }
+pkg_lint() { pnpm lint; }
+pkg_build() { pnpm build; }
+pkg_test() { pnpm exec vitest run; }
+
+backend_prisma() { pnpm gen:prisma; }
+
+run_check() { # <target> <check>
+  local target="$1" check="$2" fn
+  printf '\n\033[1;34m[ci] %s: %s\033[0m\n' "$target" "$check"
+  if [[ $target == commits ]]; then
+    fn="commits_$check"
+  else
+    cd "$ROOT/$target"
+    fn="pkg_$check"
+    declare -F "${target}_$check" >/dev/null && fn="${target}_$check"
+  fi
+  "$fn"
+  cd "$ROOT"
+}
+
+run_target() { # <target> [check...]
+  local target="$1" valid check
+  shift
+  if ! valid="$(checks_of "$target")"; then
+    echo "unknown target '$target' (expected: commits, backend, frontend)" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC2086 # split the space-separated check list
+  (($#)) || set -- $valid
+  for check in "$@"; do
+    if [[ " $valid " != *" $check "* ]]; then
+      echo "unknown check '$check' for $target (expected: $valid)" >&2
+      exit 2
+    fi
+    run_check "$target" "$check"
+  done
+}
+
+if (($#)); then
+  run_target "$@"
+else
+  for target in commits backend frontend; do run_target "$target"; done
+fi
+printf '\n\033[1;32m[ci] passed: %s\033[0m\n' "${*:-all checks}"
